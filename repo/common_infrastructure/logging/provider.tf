@@ -4,20 +4,15 @@ terraform {
       source = "databricks/databricks"
       version = "~> 1.35.0"
     }
-    aws = {
-      source = "hashicorp/aws"
+    azurerm = {
+      source = "hashicorp/azurerm"
+      version = "~> 3.0"
     }
   }
 }
 
-provider "aws" {
-  region = var.region
-  default_tags {
-    tags = {
-      Owner    = var.resource_owner
-      Resource = var.resource_prefix
-    }
-  }
+provider "azurerm" {
+  features {}
 }
 
 provider "databricks" {
