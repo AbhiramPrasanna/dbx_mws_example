@@ -1,114 +1,60 @@
 // Terraform Documentation: https://registry.terraform.io/providers/databricks/databricks/latest/docs/resources/mws_log_delivery
 
-// S3 Log Bucket
-resource "aws_s3_bucket" "log_delivery" {
-  bucket        = "${var.resource_prefix}-log-delivery"
-  force_destroy = true
+// Azure Storage Account
+resource "azurerm_storage_account" "log_delivery" {
+  name                     = "${var.resource_prefix}logdelivery"
+  resource_group_name      = var.resource_group_name
+  location                 = var.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+
   tags = {
     Name = "${var.resource_prefix}-log-delivery"
   }
 }
 
-// S3 Bucket Versioning
-resource "aws_s3_bucket_versioning" "log_delivery" {
-  bucket = aws_s3_bucket.log_delivery.id
-  versioning_configuration {
-    status = "Disabled"
+// Azure Storage Container
+resource "azurerm_storage_container" "log_delivery" {
+  name                  = "logdelivery"
+  storage_account_name  = azurerm_storage_account.log_delivery.name
+  container_access_type = "private"
+}
+
+// Azure Storage Account SAS
+resource "azurerm_storage_account_sas" "log_delivery" {
+  storage_account_name = azurerm_storage_account.log_delivery.name
+  https_only           = true
+  expiry               = "2030-01-01"
+  signed_ip            = "0.0.0.0-255.255.255.255"
+  signed_protocol      = "https"
+  permissions {
+    read    = true
+    write   = true
+    delete  = true
+    list    = true
+    add     = true
+    create  = true
   }
 }
 
-// S3 Public Access Block
-resource "aws_s3_bucket_public_access_block" "log_delivery" {
-  bucket                  = aws_s3_bucket.log_delivery.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-  depends_on              = [aws_s3_bucket.log_delivery]
-}
-
-// S3 Policy for Log Delivery Data
-data "databricks_aws_bucket_policy" "log_delivery" {
-  full_access_role = aws_iam_role.log_delivery.arn
-  bucket           = aws_s3_bucket.log_delivery.bucket
-}
-
-// S3 Policy for Log Delivery Resources
-resource "aws_s3_bucket_policy" "log_delivery" {
-  bucket = aws_s3_bucket.log_delivery.id
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "AWS" : ["${aws_iam_role.log_delivery.arn}"]
-        },
-        "Action" : "s3:GetBucketLocation",
-        "Resource" : "arn:aws:s3:::${var.resource_prefix}-log-delivery"
-      },
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "AWS" : ["${aws_iam_role.log_delivery.arn}"]
-        },
-        "Action" : [
-          "s3:PutObject",
-          "s3:GetObject",
-          "s3:DeleteObject",
-          "s3:PutObjectAcl",
-          "s3:AbortMultipartUpload",
-          "s3:ListMultipartUploadParts"
-        ],
-        "Resource" : [
-          "arn:aws:s3:::${var.resource_prefix}-log-delivery",
-          "arn:aws:s3:::${var.resource_prefix}-log-delivery/*"
-        ]
-      },
-      {
-        "Effect" : "Allow",
-        "Principal" : {
-          "AWS" : ["${aws_iam_role.log_delivery.arn}"]
-        },
-        "Action" : "s3:ListBucket",
-        "Resource" : "arn:aws:s3:::${var.resource_prefix}-log-delivery"
-      }
-    ]
-    }
-  )
-  depends_on = [
-    aws_s3_bucket.log_delivery
-  ]
-}
-
-// IAM Role
-
-// Assume Role Policy Log Delivery
-data "databricks_aws_assume_role_policy" "log_delivery" {
-  external_id      = var.databricks_account_id
-  for_log_delivery = true
-}
-
-
-// Log Delivery IAM Role
-resource "aws_iam_role" "log_delivery" {
-  name               = "${var.resource_prefix}-log-delivery"
-  description        = "(${var.resource_prefix}) Log Delivery Role"
-  assume_role_policy = data.databricks_aws_assume_role_policy.log_delivery.json
-  tags = {
-    Name = "${var.resource_prefix}-log-delivery-role"
-  }
+// Azure Role Assignment for Log Delivery
+resource "azurerm_role_assignment" "log_delivery" {
+  scope                = azurerm_storage_account.log_delivery.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.databricks_principal_id
 }
 
 // Databricks Configurations
 
 // Databricks Credential Configuration for Logs
 resource "databricks_mws_credentials" "log_writer" {
-  account_id       = var.databricks_account_id
-  credentials_name = "${var.resource_prefix}-log-delivery-credential"
-  role_arn         = aws_iam_role.log_delivery.arn
+  account_id        = var.databricks_account_id
+  credentials_name  = "${var.resource_prefix}-log-delivery-credential"
+  client_id         = var.databricks_client_id
+  client_secret     = var.databricks_client_secret
+  tenant_id         = var.databricks_tenant_id
   depends_on = [
-    aws_s3_bucket_policy.log_delivery
+    azurerm_storage_account_sas.log_delivery
   ]
 }
 
@@ -116,9 +62,11 @@ resource "databricks_mws_credentials" "log_writer" {
 resource "databricks_mws_storage_configurations" "log_bucket" {
   account_id                 = var.databricks_account_id
   storage_configuration_name = "${var.resource_prefix}-log-delivery-bucket"
-  bucket_name                = aws_s3_bucket.log_delivery.bucket
+  container_name             = azurerm_storage_container.log_delivery.name
+  storage_account_name       = azurerm_storage_account.log_delivery.name
+  sas_token                  = azurerm_storage_account_sas.log_delivery.sas
   depends_on = [
-    aws_s3_bucket_policy.log_delivery
+    azurerm_storage_account_sas.log_delivery
   ]
 }
 
@@ -132,7 +80,7 @@ resource "databricks_mws_log_delivery" "billable_usage_logs" {
   log_type                 = "BILLABLE_USAGE"
   output_format            = "CSV"
   depends_on = [
-    aws_s3_bucket_policy.log_delivery
+    azurerm_storage_account_sas.log_delivery
   ]
 }
 
@@ -146,6 +94,6 @@ resource "databricks_mws_log_delivery" "audit_logs" {
   log_type                 = "AUDIT_LOGS"
   output_format            = "JSON"
   depends_on = [
-    aws_s3_bucket_policy.log_delivery
+    azurerm_storage_account_sas.log_delivery
   ]
 }
