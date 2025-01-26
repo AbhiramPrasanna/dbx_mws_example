@@ -1,4 +1,4 @@
-variable "region" {
+variable "location" {
   type        = string
 }
 
@@ -10,7 +10,7 @@ variable "resource_prefix" {
   type        = string
 }
 
-variable "aws_account_id" {
+variable "azure_subscription_id" {
   type        = string
 }
 
@@ -25,7 +25,6 @@ variable "client_id" {
 variable "client_secret" {
   type        = string
 }
-
 
 variable "ucname" {
   type        = string
