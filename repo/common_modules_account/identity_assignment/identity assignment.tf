@@ -1,9 +1,7 @@
-data "databricks_user" "user" {
-  user_name = var.user_name
-}
+data "azurerm_client_config" "example" {}
 
-resource "databricks_mws_permission_assignment" "user" {
-  workspace_id = var.workspace_id
-  principal_id = data.databricks_user.user.id
-  permissions  = ["ADMIN"]
+resource "azurerm_role_assignment" "example" {
+  principal_id         = var.principal_id
+  role_definition_name = "Contributor"
+  scope                = data.azurerm_client_config.example.subscription_id
 }
