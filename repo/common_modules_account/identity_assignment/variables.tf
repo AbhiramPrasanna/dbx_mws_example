@@ -1,7 +1,7 @@
-variable "user_name" {
-  type        = string
+variable "principal_id" {
+  type = string
 }
 
-variable "workspace_id" {
-  type        = string
+variable "scope" {
+  type = string
 }
